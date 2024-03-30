@@ -53,7 +53,110 @@ class NoisySystem {
         result = result.map(row => row.map(val => Math.round(val * 255)));
     
         return result;
-    }    
+    } 
+
+    nonLocalMeansDenoising(img, patchSize=5, windowSize = 6, h=1.5) {
+        // Create a canvas element to work with image data
+        var canvas = document.createElement('canvas');
+        var ctx = canvas.getContext('2d');
+        var width = img.width;
+        var height = img.height;
+    
+        // Set canvas dimensions
+        canvas.width = width;
+        canvas.height = height;
+    
+        // Draw the input image onto the canvas
+        ctx.drawImage(img, 0, 0);
+    
+        // Get image data
+        var imageData = ctx.getImageData(0, 0, width, height);
+        var data = imageData.data;
+    
+        // Helper function to get pixel intensity at given coordinates
+        function getIntensity(x, y) {
+            var index = (y * width + x) * 4;
+            // Convert RGB to grayscale using luminance method
+            return (0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2]);
+        }
+    
+        // Helper function to get patch intensity at given coordinates
+        function getPatchIntensity(x, y, patchSize) {
+            var sum = 0;
+            var count = 0;
+    
+            // Loop through patch
+            for (var i = -patchSize; i <= patchSize; i++) {
+                for (var j = -patchSize; j <= patchSize; j++) {
+                    var nx = x + i;
+                    var ny = y + j;
+    
+                    // Ensure within bounds
+                    if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                        sum += getIntensity(nx, ny);
+                        count++;
+                    }
+                }
+            }
+    
+            return sum / count;
+        }
+    
+        // Perform non-local means denoising
+        var denoisedData = new Uint8ClampedArray(data.length);
+    
+        for (var x = 0; x < width; x++) {
+            for (var y = 0; y < height; y++) {
+                var patchIntensity = getPatchIntensity(x, y, patchSize);
+                var weightSum = 0;
+                var weightedSum = 0;
+    
+                // Loop through window
+                for (var i = -windowSize; i <= windowSize; i++) {
+                    for (var j = -windowSize; j <= windowSize; j++) {
+                        var nx = x + i;
+                        var ny = y + j;
+    
+                        // Ensure within bounds
+                        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+                            var windowPatchIntensity = getPatchIntensity(nx, ny, patchSize);
+                            var weight = Math.exp(-Math.pow(windowPatchIntensity - patchIntensity, 2) / (h * h));
+                            weightedSum += weight * getIntensity(nx, ny);
+                            weightSum += weight;
+                        }
+                    }
+                }
+    
+                // Calculate denoised pixel value
+                var denoisedIntensity = weightedSum / weightSum;
+    
+                // Set denoised pixel value in new image data
+                var index = (y * width + x) * 4;
+                denoisedData[index] = denoisedIntensity;
+                denoisedData[index + 1] = denoisedIntensity;
+                denoisedData[index + 2] = denoisedIntensity;
+                denoisedData[index + 3] = 255; // Alpha channel
+            }
+        }
+    
+        // Create new image data from denoised pixel values
+        var denoisedImageData = new ImageData(denoisedData, width, height);
+    
+        // Create a new canvas to draw the denoised image
+        var denoisedCanvas = document.createElement('canvas');
+        var denoisedCtx = denoisedCanvas.getContext('2d');
+        denoisedCanvas.width = width;
+        denoisedCanvas.height = height;
+    
+        // Put the denoised image data onto the canvas
+        denoisedCtx.putImageData(denoisedImageData, 0, 0);
+    
+        // Return the denoised canvas
+        return denoisedCanvas;
+    }
+    
+
+
 }
 
 function gaussianRandom(mean, stdDev) {
@@ -71,6 +174,13 @@ const saltAndPepperImageContainer = document.getElementById('saltAndPepperImageC
 const saltAndPepperImage = document.getElementById('saltAndPepperImage');
 const gaussianImageContainer = document.getElementById('gaussianImageContainer');
 const gaussianImage = document.getElementById('gaussianImage');
+
+
+const nlmSPDenoisedContainer = document.getElementById('nlmSPDenoisedContainer');
+const nlmSPDenoisedImage = document.getElementById('nlmSPDenoisedImage');
+const nlmGaussianDenoisedContainer = document.getElementById('nlmGaussianDenoisedContainer');
+const nlmGaussianDenoisedImage = document.getElementById('nlmGaussianDenoisedImage');
+
 const downloadLink = document.getElementById('downloadLink');
 const removeButton = document.getElementById('removeButton');
 
@@ -107,6 +217,17 @@ imageInput.addEventListener('change', () => {
                 const saltAndPepperImg = noisySys.createSaltAndPepperNoise(imgArray);
                 const gaussianImg = noisySys.createGaussianNoise(imgArray);
 
+                const nlm = new NoisySystem();
+
+
+                // todo 
+                const nlmSaltAndPepperDenoisedImg = nlm.nonLocalMeansDenoising(img);
+                const nlmGaussianDenoisedImg = nlm.nonLocalMeansDenoising(img);
+                nlmSPDenoisedContainer.appendChild(nlmSaltAndPepperDenoisedImg);
+                nlmSPDenoisedContainer.style.display ='block';
+                nlmGaussianDenoisedContainer.appendChild(nlmGaussianDenoisedImg);
+                nlmGaussianDenoisedContainer.style.display ='block';
+
                 const createNoisyImage = (container, imgData) => {
                     const noisyImgElement = document.createElement('canvas');
                     const noisyContext = noisyImgElement.getContext('2d');
@@ -126,6 +247,7 @@ imageInput.addEventListener('change', () => {
 
                 createNoisyImage(saltAndPepperImageContainer, saltAndPepperImg);
                 createNoisyImage(gaussianImageContainer, gaussianImg);
+                
 
                 // Create download links for modified images
                 const createDownloadLink = (container, imgData, fileName) => {
@@ -134,12 +256,13 @@ imageInput.addEventListener('change', () => {
                     link.download = fileName;
                     link.textContent = 'Download Image';
                     link.classList.add('button');
-                    container.appendChild(document.createElement('br')); 
+                    container.appendChild(document.createElement('br'));
                     container.appendChild(link);
                 };
 
                 createDownloadLink(saltAndPepperImageContainer, saltAndPepperImg, 'salt_and_pepper_image.jpg');
                 createDownloadLink(gaussianImageContainer, gaussianImg, 'gaussian_image.jpg');
+
 
                 removeButton.style.display = 'inline-block';
             }
@@ -156,7 +279,14 @@ removeButton.addEventListener('click', () => {
     saltAndPepperImageContainer.style.display = 'none';
     gaussianImage.innerHTML = '';
     gaussianImageContainer.style.display = 'none';
+
+
+    nlmSPDenoisedContainer.style.display='none';
+    nlmSPDenoisedImage = '';
+    nlmGaussianDenoisedContainer.style.display = 'none';
+    nlmGaussianDenoisedImage = '';
+
     downloadLink.style.display = 'none';
     removeButton.style.display = 'none';
-    imageInput.value = ''; // Clear the file input
+    imageInput.value = '';
 });

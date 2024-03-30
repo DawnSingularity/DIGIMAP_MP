@@ -154,9 +154,6 @@ class NoisySystem {
         // Return the denoised canvas
         return denoisedCanvas;
     }
-    
-
-
 }
 
 function gaussianRandom(mean, stdDev) {
